@@ -18,6 +18,11 @@
 		</dependency>
 		<dependency>
 			<groupId>im.webuzz</groupId>
+			<artifactId>webuzz-piled</artifactId>
+			<version>2.1.0</version>
+		</dependency>
+		<dependency>
+			<groupId>im.webuzz</groupId>
 			<artifactId>webuzz-threadpool</artifactId>
 			<version>2.1.0</version>
 		</dependency>
