@@ -59,14 +59,14 @@ class SimplePipeMonitor implements Runnable {
 				long lastLiveDetected = req.lastLiveDetected;
 				char type = req.type;
 				
-		        if (req.pipe == null) {
-		        	req.pipe = SimplePipeHelper.getPipe(key);
-		        }
-		        SimplePipeRunnable pipe = req.pipe;
-		        long waitClosingInterval = 5000;
-		        if (pipe != null) {
-		        	waitClosingInterval = pipe.pipeWaitClosingInterval();
-		        }
+				if (req.pipe == null) {
+					req.pipe = SimplePipeHelper.getPipe(key);
+				}
+				SimplePipeRunnable pipe = req.pipe;
+				long waitClosingInterval = 5000;
+				if (pipe != null) {
+					waitClosingInterval = pipe.pipeWaitClosingInterval();
+				}
 				
 				if (pipe == null || !pipe.isPipeLive()) { //!SimplePipeHelper.isPipeLive(key)) {
 					if (now - lastLiveDetected > waitClosingInterval) {

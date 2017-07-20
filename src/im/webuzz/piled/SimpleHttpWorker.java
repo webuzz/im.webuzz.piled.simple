@@ -7,6 +7,9 @@ import im.webuzz.pilet.HttpResponse;
 import im.webuzz.pilet.HttpWorkerUtils;
 import im.webuzz.pilet.IRequestMonitor;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
 import java.net.URLDecoder;
@@ -18,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.GZIPInputStream;
 
 import net.sf.j2s.ajax.CompoundPipeRunnable;
 import net.sf.j2s.ajax.CompoundPipeSession;
@@ -640,7 +644,18 @@ public class SimpleHttpWorker extends HttpWorker {
 		} else {
 			if (SimplePipeRequest.PIPE_TYPE_QUERY == type
 					|| SimplePipeRequest.PIPE_TYPE_CONTINUUM == type) {
-				contentType = "application/octet-stream";//"text/plain";
+				//contentType = "application/octet-stream";
+				// iOS NSURLConnection buffers at least 512 bytes for application/octet-stream
+				// https://stackoverflow.com/questions/9296221/what-are-alternatives-to-nsurlconnection-for-chunked-transfer-encoding
+				/*
+				 * NSURLConnection will work with chunked encoding, but has non-disclosed internal
+				 * behaviour such that it will buffer first 512 bytes before it opens the connection
+				 * and let anything through IF Content-Type in the response header is "text/html",
+				 * or "application/octet-stream". This pertains to iOS7 at least.
+				 * 
+				 * Tested on iOS 9.2/June 2017, "application/octet-stream" is not working as expected
+				 */
+				contentType = "application/json";
 			} else {
 				contentType = "text/javascript";
 			}
@@ -1064,9 +1079,44 @@ public class SimpleHttpWorker extends HttpWorker {
 		} 
 	}
 
+	protected static byte[] gzipDecompress(byte[] responseData, int offset, int length) {
+		ByteArrayOutputStream baos = new ByteArrayOutputStream(length * 4); // for plain text, compress ratio is normally 25%.
+		ByteArrayInputStream bais = new ByteArrayInputStream(responseData, offset, length);
+		GZIPInputStream gis = null;
+		boolean error = false;
+		try {
+			baos.write(new byte[] { 'W', 'L', 'L' });
+			gis = new GZIPInputStream(bais);
+			byte[] buffer = new byte[8096];
+			int read = -1;
+			while ((read = gis.read(buffer)) > 0) {
+				baos.write(buffer, 0, read);
+			}
+		} catch (Throwable e) {
+			e.printStackTrace();
+			error = true;
+		} finally {
+			if (gis != null) {
+				try {
+					gis.close();
+				} catch (IOException e) {
+					e.printStackTrace();
+				}
+			}
+		}
+		return error ? null : baos.toByteArray();
+	}
+
 	@SuppressWarnings("unchecked")
 	private void service(final SimpleHttpRequest req, final HttpResponse resp,
 			byte[] ss, final boolean restful) {
+		if (ss != null && ss.length > 7 && ss[2] == 'Z' && ss[1] == 'L' && ss[0] == 'W') {
+			// unzip ss into WLL... bytes
+			byte[] zz = gzipDecompress(ss, 7, ss.length - 7); // WLZ#### (#:0-9A-Za-z, based 62, max 14776336 ~ 14M)
+			if (zz != null) {
+				ss = zz;
+			}
+		}
 		SimpleSerializable ssObj = null;
 		if (!restful) {
 			ssObj = SimpleSerializable.parseInstance(ss);
