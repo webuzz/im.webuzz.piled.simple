@@ -377,61 +377,33 @@ public class SimpleHttpWorker extends HttpWorker {
 			HttpLoggingUtils.addLogging(req.host, req, 410, length);
 			return;
 		}
-		
-		int keyStarted = -1;
-		int keyStopped = -1;
-		
-		int typeStarted = -1;
-		int typeStopped = -1;
-		
-		int domainStarted = -1;
-		int domainStopped = -1;
-		
-		int hashStarted = -1;
-		int hashStopped = -1;
-		
-		int seqStarted = -1;
-		int seqStopped = -1;
-		
-		int unknownStarted = -1;
-		int unknownStopped = -1;
-		
-		char kC = SimplePipeRequest.FORM_PIPE_KEY;
-		char tC = SimplePipeRequest.FORM_PIPE_TYPE;
-		char dC = SimplePipeRequest.FORM_PIPE_DOMAIN;
-		char rC = SimplePipeRequest.FORM_PIPE_RANDOM;
-		char sC = SimplePipeRequest.FORM_PIPE_SEQUENCE;
+		int keyStarted = -1, keyStopped = -1;
+		int typeStarted = -1, typeStopped = -1;
+		int domainStarted = -1, domainStopped = -1;
+		int hashStarted = -1, hashStopped = -1;
+		int seqStarted = -1, seqStopped = -1;
+		int unknownStarted = -1, unknownStopped = -1;
 		char c1 = ss.charAt(0);
 		for (int i = 1; i < length; i++) {
 			char c0 = ss.charAt(i);
 			if (keyStarted != -1 && keyStopped == -1) {
-				if (c0 == '&') { // gotcha
-					keyStopped = i;
-				}
+				if (c0 == '&') keyStopped = i;
 				continue;
 			}
 			if (typeStarted != -1 && typeStopped == -1) {
-				if (c0 == '&') { // gotcha
-					typeStopped = i;
-				}
+				if (c0 == '&') typeStopped = i;
 				continue;
 			}
 			if (domainStarted != -1 && domainStopped == -1) {
-				if (c0 == '&') { // gotcha
-					domainStopped = i;
-				}
+				if (c0 == '&') domainStopped = i;
 				continue;
 			}
 			if (hashStarted != -1 && hashStopped == -1) {
-				if (c0 == '&') { // gotcha
-					hashStopped = i;
-				}
+				if (c0 == '&') hashStopped = i;
 				continue;
 			}
 			if (seqStarted != -1 && seqStopped == -1) {
-				if (c0 == '&') { // gotcha
-					seqStopped = i;
-				}
+				if (c0 == '&') seqStopped = i;
 				continue;
 			}
 			if (unknownStarted != -1 && unknownStopped == -1) {
@@ -442,19 +414,19 @@ public class SimpleHttpWorker extends HttpWorker {
 				continue;
 			}
 			if (c0 == '=') { // ?=
-				if (c1 == kC) {
+				if (c1 == SimplePipeRequest.FORM_PIPE_KEY) {
 					keyStarted = i + 1;
 					keyStopped = -1;
-				} else if (c1 == tC) {
+				} else if (c1 == SimplePipeRequest.FORM_PIPE_TYPE) {
 					typeStarted = i + 1;
 					typeStopped = -1;
-				} else if (c1 == dC) {
+				} else if (c1 == SimplePipeRequest.FORM_PIPE_DOMAIN) {
 					domainStarted = i + 1;
 					domainStopped = -1;
-				} else if (c1 == rC) {
+				} else if (c1 == SimplePipeRequest.FORM_PIPE_RANDOM) {
 					hashStarted = i + 1;
 					hashStopped = -1;
-				} else if (c1 == sC) {
+				} else if (c1 == SimplePipeRequest.FORM_PIPE_SEQUENCE) {
 					seqStarted = i + 1;
 					seqStopped = -1;
 				} else {
@@ -464,13 +436,10 @@ public class SimpleHttpWorker extends HttpWorker {
 				c0 = 0;
 			}
 			c1 = c0;
-		}
-		
+		} // end of for loop
 		String key = null;
 		if (keyStarted != -1) {
-			if (keyStopped == -1) {
-				keyStopped = length;
-			}
+			if (keyStopped == -1) keyStopped = length;
 			key = ss.substring(keyStarted, keyStopped);
 		}
 		if (key == null) {
@@ -478,36 +447,26 @@ public class SimpleHttpWorker extends HttpWorker {
 			HttpLoggingUtils.addLogging(req.host, req, 420, 0);
 			return;
 		}
-		
+		req.pipeKey = key;
 		char type = SimplePipeRequest.PIPE_TYPE_CONTINUUM;
 		if (typeStarted != -1) {
-			if (typeStopped == -1) {
-				typeStopped = length;
-			}
+			if (typeStopped == -1) typeStopped = length;
 			if (typeStopped > typeStarted) {
 				type = ss.charAt(typeStarted);
 			}
 		}		
-
+		req.pipeType = type;
 		String seq = null;
 		if (seqStarted != -1) {
-			if (seqStopped == -1) {
-				seqStopped = length;
-			}
+			if (seqStopped == -1) seqStopped = length;
 			seq = ss.substring(seqStarted, seqStopped);
-		}
-
-		req.pipeKey = key;
-		req.pipeType = type;
-		req.pipeLastNotified = System.currentTimeMillis();
-		
-		if (seq != null) {
 			try {
 				req.pipeSequence = Long.parseLong(seq);
 			} catch (NumberFormatException e) {
 				//e.printStackTrace();
 			}
 		}
+		req.pipeLastNotified = System.currentTimeMillis();
 		
 		if (SimplePipeRequest.PIPE_TYPE_NOTIFY == type) {
 			/*
@@ -525,17 +484,11 @@ public class SimpleHttpWorker extends HttpWorker {
 			//System.out.println("Notifying: " + System.currentTimeMillis() + " " + builder.toString());
 			HttpWorkerUtils.pipeOut(req, resp, "text/javascript", null, builder.toString(), false);
 			
-			if (!updated || req.pipeSequence <= 0) { // not supporting pipe sequence
-				return;
-			}
+			if (!updated || req.pipeSequence <= 0) return; // not supporting pipe sequence
 			SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
-			if (pipe == null) { // should never run into this branch, as updated = true
-				return;
-			}
+			if (pipe == null) return; // should never run into this branch, as updated = true
 			List<SimpleSerializable> list = pipe.getPipeData();
-			if (list == null) { // should never run into this branch
-				return;
-			}
+			if (list == null) return; // should never run into this branch
 			
 			SimpleSerializable[] okEvts = null;
 			int evtIdx = 0;
@@ -574,9 +527,7 @@ public class SimpleHttpWorker extends HttpWorker {
 		
 		String domain = null;
 		if (domainStarted != -1) {
-			if (domainStopped == -1) {
-				domainStopped = length;
-			}
+			if (domainStopped == -1) domainStopped = length;
 			domain = ss.substring(domainStarted, domainStopped);
 		}
 		if (SimplePipeRequest.PIPE_TYPE_SUBDOMAIN_QUERY == type) { // subdomain query
@@ -611,18 +562,12 @@ public class SimpleHttpWorker extends HttpWorker {
 			return;
 		}
 
-		long beforeLoop = System.currentTimeMillis();
-		
 		req.comet = true;
-
 		boolean supportChunking = PipeConfig.pipeChunking && req.v11;
-		
 		String contentType;
-
 		PipeRequest r = new PipeRequest();
 		r.headerSent = false;
 		r.closingSocket = false;
-		
 		if (SimplePipeRequest.PIPE_TYPE_SCRIPT == type) { // iframe
 			contentType = "text/html";
 			StringBuilder builder = new StringBuilder(256);
@@ -660,30 +605,24 @@ public class SimpleHttpWorker extends HttpWorker {
 				contentType = "text/javascript";
 			}
 		}
-
-		StringBuffer buffer = new StringBuffer(1024);
-		
-		int items = 0;
-		int priority = 0;
-        long lastLiveDetected = System.currentTimeMillis();
-
-		int pipedStatus = 200;
-
 		r.req = req;
 		r.resp = resp;
 		r.key = key;
 		r.type = type;
 		r.domain = domain;
 		r.contentType = contentType;
+		long lastLiveDetected = System.currentTimeMillis();
 		r.lastLiveDetected = lastLiveDetected;
+		long beforeLoop = System.currentTimeMillis();
 		r.beforeLoop = beforeLoop;
-		r.priority = priority;
-		r.items = items;
+		r.priority = 0;
+		r.items = 0;
+		StringBuffer buffer = new StringBuffer(1024);
 		r.buffer = buffer;
 		r.sentSequence = r.req.pipeSequence;
 		r.chunking = supportChunking;
-
 		r.pipe = SimplePipeHelper.getPipe(key);
+		int pipedStatus = 200;
 		if (r.pipe != null && r.pipe.isPipeLive()) {
 			// Keep pipe switching in request.
 			req.pipeSwitching = r.pipe.supportsSwitching();
@@ -702,65 +641,62 @@ public class SimpleHttpWorker extends HttpWorker {
 		} // else pipe is already closed or in other statuses
 		// */
 		if (pipedStatus == 200) {
-			pipeEnd(buffer, key, type, beforeLoop, items);
+			pipeEnd(buffer, key, type, beforeLoop, r.items);
 			req.comet = false;
 			HttpWorkerUtils.pipeOutBytes(req, resp, contentType, null,
 					buffer.toString().getBytes(HttpWorkerUtils.ISO_8859_1), false);
-		} else {
-			long hash = -1;
-			String hashStr = null;
-			if (hashStarted != -1) {
-				if (hashStopped == -1) {
-					hashStopped = length;
-				}
-				hashStr = ss.substring(hashStarted, hashStopped);
-			}
-			if (hashStr != null) {
-				try {
-					hash = Long.parseLong(hashStr);
-				} catch (NumberFormatException e) {
-					System.out.println("Error request: " + ss);
-					e.printStackTrace();
-				}
-			}
-			SimplePipeRunnable p = SimplePipeHelper.checkPipeWithHash(key, hash);
-			if (p == null) { // repeat attack?!
-				req.comet = false;
-				HttpWorkerUtils.send400Response(req, resp);
-				//HttpLoggingUtils.addLogging(req.host, req, 430, 0);
-			} else {
-				boolean comet = SimplePipeRequest.PIPE_TYPE_SCRIPT == r.type
-						|| SimplePipeRequest.PIPE_TYPE_CONTINUUM == r.type;
-				if (comet && buffer.length() > 0) {
-					// flush ...
-					/*
-					if (!r.headerSent) {
-						r.closingSocket = HttpWorkerUtils.pipeChunkedHeader(r.req, r.de, r.contentType, false);
-						r.headerSent = true;
-					}
-					// */
-					String bufferedOutput = r.buffer.toString();
-					int bufferedLength = bufferedOutput.length();
-					if (bufferedLength > 0) { // There are chances that r.buffer is modified
-						if (!r.headerSent) {
-							r.closingSocket = SimplePipeUtils.pipeChunkedDataWithHeader(r.chunking, r.req, r.resp, r.contentType, false, bufferedOutput);
-							r.headerSent = true;
-						} else {
-							SimplePipeUtils.pipeChunkedData(r.chunking, r.req, r.resp, bufferedOutput);
-						}
-						r.buffer.delete(0, bufferedLength);
-					}
-				} else if (comet && !r.headerSent) { // here buffer length = 0
-					String bufferedOutput = SimplePipeUtils.output(type, key, SimplePipeRequest.PIPE_STATUS_OK);
-					r.closingSocket = SimplePipeUtils.pipeChunkedDataWithHeader(r.chunking, r.req, r.resp, r.contentType, false, bufferedOutput);
-					r.headerSent = true;
-				}
-				if (p instanceof IRequestMonitor) {
-					req.monitor = (IRequestMonitor) p;
-				}
-				monitor.monitor(r);
+			return;
+		}
+		
+		long hash = -1;
+		String hashStr = null;
+		if (hashStarted != -1) {
+			if (hashStopped == -1) hashStopped = length;
+			hashStr = ss.substring(hashStarted, hashStopped);
+			try {
+				hash = Long.parseLong(hashStr);
+			} catch (NumberFormatException e) {
+				System.out.println("Error request: " + ss);
+				e.printStackTrace();
 			}
 		}
+		SimplePipeRunnable p = SimplePipeHelper.checkPipeWithHash(key, hash);
+		if (p == null) { // repeat attack?!
+			req.comet = false;
+			HttpWorkerUtils.send400Response(req, resp);
+			//HttpLoggingUtils.addLogging(req.host, req, 430, 0);
+			return;
+		}
+		boolean comet = SimplePipeRequest.PIPE_TYPE_SCRIPT == r.type
+				|| SimplePipeRequest.PIPE_TYPE_CONTINUUM == r.type;
+		if (comet && buffer.length() > 0) {
+			// flush ...
+			/*
+			if (!r.headerSent) {
+				r.closingSocket = HttpWorkerUtils.pipeChunkedHeader(r.req, r.de, r.contentType, false);
+				r.headerSent = true;
+			}
+			// */
+			String bufferedOutput = r.buffer.toString();
+			int bufferedLength = bufferedOutput.length();
+			if (bufferedLength > 0) { // There are chances that r.buffer is modified
+				if (!r.headerSent) {
+					r.closingSocket = SimplePipeUtils.pipeChunkedDataWithHeader(r.chunking, r.req, r.resp, r.contentType, false, bufferedOutput);
+					r.headerSent = true;
+				} else {
+					SimplePipeUtils.pipeChunkedData(r.chunking, r.req, r.resp, bufferedOutput);
+				}
+				r.buffer.delete(0, bufferedLength);
+			}
+		} else if (comet && !r.headerSent) { // here buffer length = 0
+			String bufferedOutput = SimplePipeUtils.output(type, key, SimplePipeRequest.PIPE_STATUS_OK);
+			r.closingSocket = SimplePipeUtils.pipeChunkedDataWithHeader(r.chunking, r.req, r.resp, r.contentType, false, bufferedOutput);
+			r.headerSent = true;
+		}
+		if (p instanceof IRequestMonitor) {
+			req.monitor = (IRequestMonitor) p;
+		}
+		monitor.monitor(r);
 	}
 
 	/*
@@ -821,10 +757,10 @@ public class SimpleHttpWorker extends HttpWorker {
 	 */ 
 	protected static int doPipe(PipeRequest r, boolean firstResponse) {
 		SimplePipeRunnable pipe = SimplePipeHelper.getPipe(r.key);
-        List<SimpleSerializable> list = pipe != null ? pipe.getPipeData() : null; //SimplePipeHelper.getPipeDataList(r.key);
-        if (list == null) {
-        	return 200;
-        }
+		List<SimpleSerializable> list = pipe != null ? pipe.getPipeData() : null; //SimplePipeHelper.getPipeDataList(r.key);
+		if (list == null) {
+			return 200;
+		}
 
 		StringBuilder builder = new StringBuilder(1024);
 		int items = r.items;
@@ -1014,9 +950,9 @@ public class SimpleHttpWorker extends HttpWorker {
 		
 		boolean pipeContinue = false;
 		if (!live) {
-	        //SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
-	        long waitClosingInterval = pipe == null ? 5000 : pipe.pipeWaitClosingInterval();
-	        pipeContinue = now - lastLiveDetected < waitClosingInterval; // still in waiting interval
+			//SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
+			long waitClosingInterval = pipe == null ? 5000 : pipe.pipeWaitClosingInterval();
+			pipeContinue = now - lastLiveDetected < waitClosingInterval; // still in waiting interval
 		} else {
 			lastLiveDetected = now;
 			if ((r.buffer.length() == 0 && now - beforeLoop >= PipeConfig.queryTimeout
@@ -1146,7 +1082,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			Map<String, Object> properties = new HashMap<String, Object>();
 			Object requstObj = req.requestData;
 			String requestData = (requstObj == null) ? "" : (requstObj instanceof String ? (String) requstObj
-			         : new String((byte[]) requstObj, HttpWorkerUtils.UTF_8));
+					: new String((byte[]) requstObj, HttpWorkerUtils.UTF_8));
 			String[] datas = requestData.split("&");
 			for (String prop : datas) {
 				String[] propArray = prop.split("=");

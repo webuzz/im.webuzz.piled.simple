@@ -6,11 +6,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import im.webuzz.pilet.HttpQuickResponse;
 import im.webuzz.pilet.HttpRequest;
+import net.sf.j2s.ajax.SimplePipeRequest;
+import net.sf.j2s.ajax.SimpleSerializable;
 
 public class SimpleHttpRequest extends HttpRequest {
 
 	/*
-	 * For cross site scripting (XSS), we need to concat different HTTP
+	 * For cross site scripting (XSS), we need to link different HTTP
 	 * requests into one request based on session.
 	 */
 	static Map<String, SimpleHttpRequest> allSessions = new ConcurrentHashMap<String, SimpleHttpRequest>();
@@ -31,6 +33,8 @@ public class SimpleHttpRequest extends HttpRequest {
 	public long pipeSequence;
 	public boolean pipeSwitching;
 
+	public int simpleStatus; // 0: initialized, 1: received, 2: (>3) checked: simple, -2: (>3) checked: http  
+	
 	public void debugPrint() {
 		super.debugPrint();
 		System.out.println("requestID: " + requestID);
@@ -335,4 +339,112 @@ public class SimpleHttpRequest extends HttpRequest {
 		} // end of XSS script query parsing
 		return 0;
 	}
+	
+	protected int fromBase62Length(char c) {
+		if ('0' <= c && c <= '9') return c - '0';
+		if ('A' <= c && c <= 'Z') return c - 'A' + 10;
+		if ('a' <= c && c <= 'z') return c - 'a' + 10 + 26;
+		return -1;
+	}
+	
+	public HttpQuickResponse parseData(byte[] data) {
+		if (simpleStatus == -2) {
+			return super.parseData(data);
+		}
+		if (data == null || data.length == 0) {
+			return new HttpQuickResponse(100); // Continue reading...
+		}
+		if (simpleStatus == 0 || simpleStatus == 1) {
+			simpleStatus = 1; // received
+			int pendingLength = pending == null ? 0 : pending.length;
+			if (pendingLength == 0 && data[0] != 'W') {
+				simpleStatus = -2; // http
+				return super.parseData(data);
+			}
+			if (pendingLength + data.length >= 2) {
+				if (pendingLength <= 1 && data[1 - pendingLength] != 'L') {
+					simpleStatus = -2; // http
+					return super.parseData(data);
+				}
+				if (pendingLength + data.length >= 3) {
+					if (pendingLength <= 2 && data[2 - pendingLength] != 'L' && data[2 - pendingLength] != 'Z') {
+						simpleStatus = -2; // http
+						return super.parseData(data);
+					} else {
+						simpleStatus = 2; // simple
+						// continue
+					}
+				}
+			}
+			if (simpleStatus != 2) {
+				return super.parseData(data);
+			}
+		} // simpleStatus <= 1 : 0, 1
+		
+		// simple status is 2 now
+		if (pending == null) {
+			pending = new byte[data.length];
+		} else {
+			byte[] newData = new byte[dataLength + data.length];
+			System.arraycopy(pending, 0, newData, 0, dataLength);
+			pending = newData;
+		}
+		System.arraycopy(data, 0, pending, dataLength, data.length);
+		if (pending[2] == 'Z') { // WLZ: gzip data
+			if (pending.length < 7) {
+				return new HttpQuickResponse(100);
+			}
+			int c1 = fromBase62Length((char) pending[3]);
+			int c2 = fromBase62Length((char) pending[4]);
+			int c3 = fromBase62Length((char) pending[5]);
+			int c4 = fromBase62Length((char) pending[6]);
+			if (c1 < 0 || c2 < 0 || c3 < 0 || c4 < 0) {
+				return new HttpQuickResponse(400);
+			}
+			int length = (((c1 * 62 + c2) * 62) + c3) * 62 + c4;
+			int fullLength = 7 + length;
+			if (pending.length < fullLength) {
+				return new HttpQuickResponse(100);
+			}
+			if (pending.length > fullLength) {
+				requestData = new byte[fullLength];
+				System.arraycopy(pending, 0, requestData, 0, fullLength);
+				dataLength = pending.length - fullLength;
+				byte[] newPending = new byte[dataLength];
+				System.arraycopy(pending, 0, newPending, 0, dataLength);
+				pending = newPending;
+			} else {
+				requestData = pending;
+				dataLength = 0;
+				pending = null;
+			}
+		} else {
+			SimpleSerializable ss = SimpleSerializable.parseInstance(pending);
+			if (ss == null) {
+				return new HttpQuickResponse(100);
+			}
+			int next = SimplePipeRequest.restBytesIndex(pending, 0);
+			if (next <= 0) {
+				return new HttpQuickResponse(100);
+			}
+			if (pending.length > next) {
+				requestData = new byte[next];
+				System.arraycopy(pending, 0, requestData, 0, next);
+				dataLength = pending.length - next;
+				byte[] newPending = new byte[dataLength];
+				System.arraycopy(pending, 0, newPending, 0, dataLength);
+				pending = newPending;
+			} else {
+				requestData = pending;
+				dataLength = 0;
+				pending = null;
+			}
+		}
+		// continue
+		url = "/r";
+		method = "POST";
+		response = new HttpQuickResponse(200);
+		return response;
+	}
+	
 }
