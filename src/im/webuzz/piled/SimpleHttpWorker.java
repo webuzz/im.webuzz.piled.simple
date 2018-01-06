@@ -1056,14 +1056,18 @@ public class SimpleHttpWorker extends HttpWorker {
 		SimpleSerializable ssObj = null;
 		if (!restful) {
 			ssObj = SimpleSerializable.parseInstance(ss);
-			if (ssObj == null || ssObj == SimpleSerializable.ERROR
-					|| ssObj == SimpleSerializable.UNKNOWN) {
+			if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
 				System.out.println("[ERROR query!]" + new String(ss));
 				System.out.println("[ERROR UA]" + req.userAgent);
 				System.out.println("[ERROR URL]" + req.url);
 				System.out.println("[ERROR IP]" + req.remoteIP);
 				System.out.println("[ERROR Referrer]" + req.referer);
 				System.out.println("[ERROR Host]" + req.host);
+				HttpWorkerUtils.send400Response(req, resp);
+				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				errorRequests++;
+				return;
+			} else if (ssObj == SimpleSerializable.UNKNOWN) {
 				HttpWorkerUtils.send400Response(req, resp);
 				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
 				errorRequests++;
@@ -1136,14 +1140,18 @@ public class SimpleHttpWorker extends HttpWorker {
 				}
 			}
 			ssObj = SimpleSerializable.parseInstance(properties);
-			if (ssObj == null || ssObj == SimpleSerializable.ERROR
-					|| ssObj == SimpleSerializable.UNKNOWN) {
+			if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
 				System.out.println("[ERROR query!]" + new String(ss));
 				System.out.println("[ERROR UA]" + req.userAgent);
 				System.out.println("[ERROR URL]" + req.url);
 				System.out.println("[ERROR IP]" + req.remoteIP);
 				System.out.println("[ERROR Referrer]" + req.referer);
 				System.out.println("[ERROR Host]" + req.host);
+				HttpWorkerUtils.send400Response(req, resp);
+				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				errorRequests++;
+				return;
+			} else if (ssObj == SimpleSerializable.UNKNOWN) {
 				HttpWorkerUtils.send400Response(req, resp);
 				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
 				errorRequests++;
