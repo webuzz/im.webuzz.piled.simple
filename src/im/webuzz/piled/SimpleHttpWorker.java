@@ -12,6 +12,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -64,7 +65,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			Class<?> nioReqClass = Class.forName("im.webuzz.nio.SimpleNIORequest");
 			if (nioReqClass != null) {
 				Method initMethod = nioReqClass.getMethod("initialize");
-				if (initMethod != null) {
+				if (initMethod != null && (initMethod.getModifiers() & Modifier.STATIC) != 0) {
 					initMethod.invoke(nioReqClass);
 				}
 			}
@@ -81,7 +82,7 @@ public class SimpleHttpWorker extends HttpWorker {
 	 * Check expired requests and close it gracefully. Invoked every 10s
 	 */
 	protected void checkExpiredRequests() {
-		boolean pipeSupported = PipeConfig.simplePipeSupported;
+		boolean pipeSupported = SimpleConfig.simplePipeSupported;
 		boolean monitorSupported = PiledConfig.remoteMonitorSupported;
 		long now = System.currentTimeMillis();
 		Set<SimpleHttpRequest> toRemoveds = new HashSet<SimpleHttpRequest>();
@@ -99,10 +100,10 @@ public class SimpleHttpWorker extends HttpWorker {
 				if (!req.comet && now - Math.max(req.created, req.lastSent) > 2 * HttpConfig.aliveTimeout * 1000) { // normally timeout
 					toRemoveds.add(req);
 				} else if (pipeSupported && req.comet && req.pipeKey != null) {
-					if (PipeConfig.pipeSwitching && req.pipeSwitching) {
+					if (SimpleConfig.pipeSwitching && req.pipeSwitching) {
 						lostPipes.remove(req.pipeKey);
 					}
-					if (now - req.pipeLastNotified > PipeConfig.queryTimeout) {
+					if (now - req.pipeLastNotified > SimpleConfig.queryTimeout) {
 						SimplePipeHelper.notifyPipeStatus(req.pipeKey, true);
 						req.pipeLastNotified = now;
 					}
@@ -120,12 +121,12 @@ public class SimpleHttpWorker extends HttpWorker {
 
 		final List<IRequestMonitor> monitors = monitorSupported ? new ArrayList<IRequestMonitor>() : null;
 		final Set<String> pipeKeys = pipeSupported ? new HashSet<String>() : null;
-		if (pipeSupported && PipeConfig.pipeSwitching) {
+		if (pipeSupported && SimpleConfig.pipeSwitching) {
 			// Check whether pipes in lostPipes are expired, if so, we will call #pipeLost later
 			for (Iterator<String> itr = lostPipes.keySet().iterator(); itr.hasNext();) {
 				String key = (String) itr.next();
 				Long time = lostPipes.get(key);
-				if (time != null && now - time.longValue() > PipeConfig.pipeSwitchingMaxInterval) {
+				if (time != null && now - time.longValue() > SimpleConfig.pipeSwitchingMaxInterval) {
 					itr.remove(); //lostPipes.remove(key);
 					pipeKeys.add(key);
 				}
@@ -152,7 +153,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			if (pipeSupported && req.comet && req.pipeKey != null
 					&& SimplePipeRequest.PIPE_TYPE_CONTINUUM == req.pipeType) {
 				// if supports pipe switching, wait until pipe switching interval gap
-				if (PipeConfig.pipeSwitching && req.pipeSwitching) {
+				if (SimpleConfig.pipeSwitching && req.pipeSwitching) {
 					lostPipes.put(req.pipeKey, Long.valueOf(now));
 				} else {
 					pipeKeys.add(req.pipeKey);
@@ -166,12 +167,12 @@ public class SimpleHttpWorker extends HttpWorker {
 				workerPool.execute(new Runnable() {
 					@Override
 					public void run() {
-						if (PipeConfig.simplePipeSupported && pipeKeys != null) {
+						if (SimpleConfig.simplePipeSupported && pipeKeys != null) {
 							for (String pipeKey : pipeKeys) {
-								SimplePipeRunnable pipe = SimplePipeHelper.getPipe(pipeKey);
+								SimplePipeRunnable pipe = SimplePipeHelper.getPipe(pipeKey, true);
 								if (pipe != null) {
 									pipe.pipeLost();
-									SimplePipeHelper.removePipe(pipeKey);
+									SimplePipeHelper.removePipe(pipeKey, true);
 								}
 							}
 						}
@@ -187,10 +188,10 @@ public class SimpleHttpWorker extends HttpWorker {
 				// UNSAFE: worker may be frozen, unless we comment out heavy tasks
 				if (pipeSupported && pipeKeys.size() > 0) {
 					for (String pipeKey : pipeKeys) {
-						SimplePipeRunnable pipe = SimplePipeHelper.getPipe(pipeKey);
+						SimplePipeRunnable pipe = SimplePipeHelper.getPipe(pipeKey, true);
 						if (pipe != null) {
 							// pipe.pipeLost(); // might be heavy task
-							SimplePipeHelper.removePipe(pipeKey);
+							SimplePipeHelper.removePipe(pipeKey, true);
 						}
 					}
 				}
@@ -257,9 +258,9 @@ public class SimpleHttpWorker extends HttpWorker {
 		}
 		if (req != null) {
 			req.closed = now;
-			if (PipeConfig.simplePipeSupported && req.comet && req.pipeKey != null
+			if (SimpleConfig.simplePipeSupported && req.comet && req.pipeKey != null
 					&& SimplePipeRequest.PIPE_TYPE_CONTINUUM == req.pipeType) {
-				if (PipeConfig.pipeSwitching && req.pipeSwitching) {
+				if (SimpleConfig.pipeSwitching && req.pipeSwitching) {
 					// #checkExpiredRequests will call #pipeLost later
 					lostPipes.put(req.pipeKey, Long.valueOf(now));
 				} else {
@@ -282,10 +283,10 @@ public class SimpleHttpWorker extends HttpWorker {
 							monitor.requestClosedByRemote(); // might be a heavy task
 						}
 						if (key != null) {
-							SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
+							SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key, true);
 							if (pipe != null) {
 								pipe.pipeLost(); // might be a heavy task
-								SimplePipeHelper.removePipe(key);
+								SimplePipeHelper.removePipe(key, true);
 							}
 						}
 					}
@@ -297,10 +298,10 @@ public class SimpleHttpWorker extends HttpWorker {
 					// monitor.requestClosedByRemote(); // might be a heavy task
 				}
 				if (key != null) {
-					SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
+					SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key, true);
 					if (pipe != null) {
 						// pipe.pipeLost(); // might be a heavy task
-						SimplePipeHelper.removePipe(key);
+						SimplePipeHelper.removePipe(key, true);
 					}
 				}
 			}
@@ -310,10 +311,10 @@ public class SimpleHttpWorker extends HttpWorker {
 	@SuppressWarnings("deprecation")
 	private byte[] getRequestBytes(final HttpRequest req) {
 		byte[] bytes = null;
-		if (req.requestData instanceof byte[]) {
-			bytes = (byte[])req.requestData;
-		} else { // if (req.requestData instanceof String) {
-			String ss = (String) req.requestData;
+		if (req.requestBody instanceof byte[]) {
+			bytes = (byte[])req.requestBody;
+		} else if (req.requestQuery != null) { // if (req.requestData instanceof String) {
+			String ss = req.requestQuery;
 			if (!"POST".equals(req.method)) {
 				try {
 					ss = URLDecoder.decode(ss);
@@ -330,10 +331,10 @@ public class SimpleHttpWorker extends HttpWorker {
 	@SuppressWarnings("deprecation")
 	private String getRequestString(final HttpRequest req) {
 		String ss = null;
-		if (req.requestData instanceof byte[]) {
-			ss = new String((byte[])req.requestData, HttpWorkerUtils.ISO_8859_1);
-		} else { // if (req.requestData instanceof String) {
-			ss = (String) req.requestData;
+		if (req.requestBody instanceof byte[]) {
+			ss = new String((byte[])req.requestBody, HttpWorkerUtils.ISO_8859_1);
+		} else if (req.requestQuery != null) { // if (req.requestData instanceof String) {
+			ss = req.requestQuery;
 		}
 		if (!"POST".equals(req.method)) {
 			try {
@@ -347,35 +348,37 @@ public class SimpleHttpWorker extends HttpWorker {
 	}
 
 	protected void respondRequestWithData(HttpRequest req, HttpResponse rsp) {
-		if (PipeConfig.simpleRPCSupported && req.url.endsWith("/r")) { // Optimize for Simple RPC
+		boolean processed = false;
+		if (SimpleConfig.simpleRPCSupported && req.url.endsWith("/r")) { // Optimize for Simple RPC
 			req.cookies = null;
-			service((SimpleHttpRequest) req, rsp, getRequestBytes(req), false);
-		} else if (PipeConfig.simplePipeSupported && req.url.endsWith("/p")) { // Optimize for Simple Pipe
+			processed = service((SimpleHttpRequest) req, rsp, getRequestBytes(req), false);
+		} else if (SimpleConfig.simplePipeSupported && req.url.endsWith("/p")) { // Optimize for Simple Pipe
 			req.cookies = null;
-			pipe((SimpleHttpRequest) req, rsp, getRequestString(req));
-		} else if (PipeConfig.simpleRPCSupported && (req.url.endsWith("piperpc")
+			processed = pipe((SimpleHttpRequest) req, rsp, getRequestString(req));
+		} else if (SimpleConfig.simpleRPCSupported && (req.url.endsWith("piperpc")
 				|| req.url.endsWith("/c") || req.url.endsWith("simplerpc"))) {
 			req.cookies = null;
-			service((SimpleHttpRequest) req, rsp, getRequestBytes(req), false);
-		} else if (PipeConfig.simplePipeSupported && req.url.endsWith("simplepipe")) {
+			processed = service((SimpleHttpRequest) req, rsp, getRequestBytes(req), false);
+		} else if (SimpleConfig.simplePipeSupported && req.url.endsWith("simplepipe")) {
 			req.cookies = null;
-			pipe((SimpleHttpRequest) req, rsp, getRequestString(req));
-		} else if (PipeConfig.simpleRPCSupported
+			processed = pipe((SimpleHttpRequest) req, rsp, getRequestString(req));
+		} else if (SimpleConfig.simpleRPCSupported
 				&& (req.url.endsWith("/j") || req.url.endsWith("simplejson"))) {
 			req.cookies = null;
-			service((SimpleHttpRequest) req, rsp, getRequestBytes(req), true);
-		} else { // normal requests with query
+			processed = service((SimpleHttpRequest) req, rsp, getRequestBytes(req), true);
+		}
+		if (!processed) { // normal requests with query
 			piletResponse(req, rsp);
 		}
 		chainingRequest(req, rsp);
 	}
 
-	private void pipe(final SimpleHttpRequest req, final HttpResponse resp, String ss) {
+	private boolean pipe(final SimpleHttpRequest req, final HttpResponse resp, String ss) {
 		int length = ss.length();
 		if (length < 2) {
-			HttpWorkerUtils.send400Response(req, resp);
-			HttpLoggingUtils.addLogging(req.host, req, 410, length);
-			return;
+			//HttpWorkerUtils.send400Response(req, resp);
+			//HttpLoggingUtils.addLogging(req.host, req, resp, null, 410, length);
+			return false;
 		}
 		int keyStarted = -1, keyStopped = -1;
 		int typeStarted = -1, typeStopped = -1;
@@ -443,9 +446,9 @@ public class SimpleHttpWorker extends HttpWorker {
 			key = ss.substring(keyStarted, keyStopped);
 		}
 		if (key == null) {
-			HttpWorkerUtils.send400Response(req, resp);
-			HttpLoggingUtils.addLogging(req.host, req, 420, 0);
-			return;
+			//HttpWorkerUtils.send400Response(req, resp);
+			//HttpLoggingUtils.addLogging(req.host, req, resp, null, 420, 0);
+			return false;
 		}
 		req.pipeKey = key;
 		char type = SimplePipeRequest.PIPE_TYPE_CONTINUUM;
@@ -483,12 +486,18 @@ public class SimpleHttpWorker extends HttpWorker {
 			builder.append(");");
 			//System.out.println("Notifying: " + System.currentTimeMillis() + " " + builder.toString());
 			HttpWorkerUtils.pipeOut(req, resp, "text/javascript", null, builder.toString(), false);
-			
-			if (!updated || req.pipeSequence <= 0) return; // not supporting pipe sequence
-			SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
-			if (pipe == null) return; // should never run into this branch, as updated = true
+			SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key, true);
+			if (SimpleConfig.pipeLogging) {
+				if (pipe != null) {
+					SimpleLoggingUtils.addLogging(req.host, req, resp, pipe.getClass().getName(), 200, builder.length());
+				} else {
+					HttpLoggingUtils.addLogging(req.host, req, resp, null, 200, builder.length());
+				}
+			}
+			if (!updated || req.pipeSequence <= 0) return true; // not supporting pipe sequence
+			if (pipe == null) return true; // should never run into this branch, as updated = true
 			List<SimpleSerializable> list = pipe.getPipeData();
-			if (list == null) return; // should never run into this branch
+			if (list == null) return true; // should never run into this branch
 			
 			SimpleSerializable[] okEvts = null;
 			int evtIdx = 0;
@@ -522,7 +531,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			if (req.pipeSequence > pipe.getSequence()) {
 				pipe.setSequence(req.pipeSequence);
 			}
-			return;
+			return true;
 		}
 		
 		String domain = null;
@@ -559,11 +568,14 @@ public class SimpleHttpWorker extends HttpWorker {
 			builder.append("</script>\r\n");
 			builder.append("</body></html>\r\n");
 			HttpWorkerUtils.pipeOut(req, resp, "text/html", null, builder.toString(), false);
-			return;
+			if (SimpleConfig.pipeLogging) {
+				HttpLoggingUtils.addLogging(req.host, req, resp, null, 200, 0);
+			}
+			return true;
 		}
 
 		req.comet = true;
-		boolean supportChunking = PipeConfig.pipeChunking && req.v11;
+		boolean supportChunking = SimpleConfig.pipeChunking && req.v11;
 		String contentType;
 		PipeRequest r = new PipeRequest();
 		r.headerSent = false;
@@ -621,12 +633,12 @@ public class SimpleHttpWorker extends HttpWorker {
 		r.buffer = buffer;
 		r.sentSequence = r.req.pipeSequence;
 		r.chunking = supportChunking;
-		r.pipe = SimplePipeHelper.getPipe(key);
+		r.pipe = SimplePipeHelper.getPipe(key, true);
 		int pipedStatus = 200;
 		if (r.pipe != null && r.pipe.isPipeLive()) {
 			// Keep pipe switching in request.
 			req.pipeSwitching = r.pipe.supportsSwitching();
-			if (PipeConfig.pipeSwitching && req.pipeSwitching && SimplePipeRequest.PIPE_TYPE_CONTINUUM == type
+			if (SimpleConfig.pipeSwitching && req.pipeSwitching && SimplePipeRequest.PIPE_TYPE_CONTINUUM == type
 					&& System.currentTimeMillis() - Math.max(req.created, req.lastSent) > 2 * HttpConfig.aliveTimeout * 1000) {
 				lostPipes.remove(key);
 			}
@@ -645,7 +657,14 @@ public class SimpleHttpWorker extends HttpWorker {
 			req.comet = false;
 			HttpWorkerUtils.pipeOutBytes(req, resp, contentType, null,
 					buffer.toString().getBytes(HttpWorkerUtils.ISO_8859_1), false);
-			return;
+			if (SimpleConfig.pipeLogging) {
+				if (r.pipe != null) {
+					SimpleLoggingUtils.addLogging(req.host, req, resp, r.pipe.getClass().getName(), 200, 0);
+				} else {
+					HttpLoggingUtils.addLogging(req.host, req, resp, null, 200, 0);
+				}
+			}
+			return true;
 		}
 		
 		long hash = -1;
@@ -663,9 +682,11 @@ public class SimpleHttpWorker extends HttpWorker {
 		SimplePipeRunnable p = SimplePipeHelper.checkPipeWithHash(key, hash);
 		if (p == null) { // repeat attack?!
 			req.comet = false;
-			HttpWorkerUtils.send400Response(req, resp);
-			//HttpLoggingUtils.addLogging(req.host, req, 430, 0);
-			return;
+			// HttpWorkerUtils.send400Response(req, resp);
+			if (SimpleConfig.pipeLogging) {
+				HttpLoggingUtils.addLogging(req.host, req, resp, null, 430, 0);
+			}
+			return false;
 		}
 		boolean comet = SimplePipeRequest.PIPE_TYPE_SCRIPT == r.type
 				|| SimplePipeRequest.PIPE_TYPE_CONTINUUM == r.type;
@@ -697,6 +718,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			req.monitor = (IRequestMonitor) p;
 		}
 		monitor.monitor(r);
+		return true;
 	}
 
 	/*
@@ -756,7 +778,7 @@ public class SimpleHttpWorker extends HttpWorker {
 	 * Notify that client (browser) still keeps the pipe connection.
 	 */ 
 	protected static int doPipe(PipeRequest r, boolean firstResponse) {
-		SimplePipeRunnable pipe = SimplePipeHelper.getPipe(r.key);
+		SimplePipeRunnable pipe = SimplePipeHelper.getPipe(r.key, true);
 		List<SimpleSerializable> list = pipe != null ? pipe.getPipeData() : null; //SimplePipeHelper.getPipeDataList(r.key);
 		if (list == null) {
 			return 200;
@@ -776,7 +798,7 @@ public class SimpleHttpWorker extends HttpWorker {
 		boolean isScripting = SimplePipeRequest.PIPE_TYPE_SCRIPT == type;
 		boolean isContinuum = SimplePipeRequest.PIPE_TYPE_CONTINUUM == type;
 		pipe.setPipeMode(isContinuum ? SimplePipeRequest.MODE_PIPE_CONTINUUM : SimplePipeRequest.MODE_PIPE_QUERY);
-		int maxItems = isScripting ? 5 * PipeConfig.maxItemsPerQuery : PipeConfig.maxItemsPerQuery;
+		int maxItems = isScripting ? 5 * SimpleConfig.maxItemsPerQuery : SimpleConfig.maxItemsPerQuery;
 		
 		boolean live = SimplePipeHelper.isPipeLive(key);
 		SimpleSerializable[] okEvts = null;
@@ -870,7 +892,7 @@ public class SimpleHttpWorker extends HttpWorker {
 				
 				if (live && !isScripting && !isContinuum
 						&& priority < ISimplePipePriority.IMPORTANT
-						&& now - beforeLoop < PipeConfig.queryTimeout
+						&& now - beforeLoop < SimpleConfig.queryTimeout
 						&& (maxItems <= 0 || items < maxItems)) {
 					// not reaching data flushing, ignore all peeked data and return
 					return 100;
@@ -955,7 +977,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			pipeContinue = now - lastLiveDetected < waitClosingInterval; // still in waiting interval
 		} else {
 			lastLiveDetected = now;
-			if ((r.buffer.length() == 0 && now - beforeLoop >= PipeConfig.queryTimeout
+			if ((r.buffer.length() == 0 && now - beforeLoop >= SimpleConfig.queryTimeout
 					&& SimplePipeRequest.PIPE_TYPE_CONTINUUM != type)
 					/*|| (lastPipeDataWritten > 0
 						&& now - lastPipeDataWritten >= PipeConfig.queryTimeout
@@ -964,11 +986,11 @@ public class SimpleHttpWorker extends HttpWorker {
 				builder.append(SimplePipeUtils.output(type, key, SimplePipeRequest.PIPE_STATUS_OK));
 			}
 			
-			boolean itemCountOK = PipeConfig.maxItemsPerQuery <= 0 || items < maxItems;
+			boolean itemCountOK = SimpleConfig.maxItemsPerQuery <= 0 || items < maxItems;
 			pipeContinue = isContinuum
-					|| (itemCountOK && now - beforeLoop < PipeConfig.queryTimeout // not query timeout
+					|| (itemCountOK && now - beforeLoop < SimpleConfig.queryTimeout // not query timeout
 							&& priority < ISimplePipePriority.IMPORTANT) 
-					|| (itemCountOK && now - beforeLoop < PipeConfig.pipeBreakout // not pipe breakout
+					|| (itemCountOK && now - beforeLoop < SimpleConfig.pipeBreakout // not pipe breakout
 							&& isScripting);
 		}
 		
@@ -996,15 +1018,15 @@ public class SimpleHttpWorker extends HttpWorker {
 	}
 	
 	static void pipeEnd(StringBuffer buffer, String key, char type, long beforeLoop, int items) {
-		SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key);
+		SimplePipeRunnable pipe = SimplePipeHelper.getPipe(key, true);
 		if (pipe == null || pipe.getPipeData() /*SimplePipeHelper.getPipeDataList(key)*/ == null
 				|| !pipe.isPipeLive() /*!SimplePipeHelper.isPipeLive(key)*/) { // pipe is tore down!
 			//SimplePipeHelper.notifyPipeStatus(key, false); // Leave for pipe monitor to destroy it
-			SimplePipeHelper.removePipe(key);
+			SimplePipeHelper.removePipe(key, true);
 			buffer.append(SimplePipeUtils.output(type, key, SimplePipeRequest.PIPE_STATUS_DESTROYED));
 		} else if (SimplePipeRequest.PIPE_TYPE_SCRIPT == type
-				&& (System.currentTimeMillis() - beforeLoop >= PipeConfig.pipeBreakout
-						|| (PipeConfig.maxItemsPerQuery > 0 && items >= PipeConfig.maxItemsPerQuery * 5))) {
+				&& (System.currentTimeMillis() - beforeLoop >= SimpleConfig.pipeBreakout
+						|| (SimpleConfig.maxItemsPerQuery > 0 && items >= SimpleConfig.maxItemsPerQuery * 5))) {
 			buffer.append(SimplePipeUtils.output(type, key, SimplePipeRequest.PIPE_STATUS_CONTINUE));
 		}
 		if (buffer.length() == 0) {
@@ -1043,8 +1065,24 @@ public class SimpleHttpWorker extends HttpWorker {
 		return error ? null : baos.toByteArray();
 	}
 
+	private static String parseInstanceClassName(byte[] bytes, int start, SimpleFilter filter) {
+		if (bytes == null || start < 0) return null;
+		int length = bytes.length - start;
+		if (length <= 7) return null;
+		if ('W' != bytes[start] || 'L' != bytes[start + 1] || 'L' != bytes[start + 2]) return "ERROR";
+		int v = 100 * bytes[start + 3] + 10 * bytes[start + 4] + bytes[start + 5] - '0' * 111;
+		if (v < 0 || v > 999) return "ERROR";
+		int index = start;
+		int max = bytes.length;
+		for (; index < max ; index++) {
+			if (bytes[index] == (byte) '#') {
+				return new String(bytes, start + 6, index - (start + 6));
+			}
+		}
+		return null;
+	}
 	@SuppressWarnings("unchecked")
-	private void service(final SimpleHttpRequest req, final HttpResponse resp,
+	private boolean service(final SimpleHttpRequest req, final HttpResponse resp,
 			byte[] ss, final boolean restful) {
 		if (ss != null && ss.length > 7 && ss[2] == 'Z' && ss[1] == 'L' && ss[0] == 'W') {
 			// unzip ss into WLL... bytes
@@ -1063,30 +1101,28 @@ public class SimpleHttpWorker extends HttpWorker {
 				System.out.println("[ERROR IP]" + req.remoteIP);
 				System.out.println("[ERROR Referrer]" + req.referer);
 				System.out.println("[ERROR Host]" + req.host);
-				HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				//HttpWorkerUtils.send400Response(req, resp);
+				HttpLoggingUtils.addLogging(req.host, req, resp, null, 400, 0);
 				errorRequests++;
-				return;
+				return false;
 			} else if (ssObj == SimpleSerializable.UNKNOWN) {
-				HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				//HttpWorkerUtils.send400Response(req, resp);
+				SimpleLoggingUtils.addLogging(req.host, req, resp, parseInstanceClassName(ss, 0, null), 400, 0);
 				errorRequests++;
-				return;
+				return false;
 			}
 			try {
 				ssObj.deserializeBytes(ss);
 			} catch (Throwable e) {
 				e.printStackTrace();
-				HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				//HttpWorkerUtils.send400Response(req, resp);
+				SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
 				errorRequests++;
-				return;
+				return false;
 			}
 		} else {
 			Map<String, Object> properties = new HashMap<String, Object>();
-			Object requstObj = req.requestData;
-			String requestData = (requstObj == null) ? "" : (requstObj instanceof String ? (String) requstObj
-					: new String((byte[]) requstObj, HttpWorkerUtils.UTF_8));
+			String requestData = new String(ss, HttpWorkerUtils.UTF_8);
 			String[] datas = requestData.split("&");
 			for (String prop : datas) {
 				String[] propArray = prop.split("=");
@@ -1147,25 +1183,25 @@ public class SimpleHttpWorker extends HttpWorker {
 				System.out.println("[ERROR IP]" + req.remoteIP);
 				System.out.println("[ERROR Referrer]" + req.referer);
 				System.out.println("[ERROR Host]" + req.host);
-				HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				//HttpWorkerUtils.send400Response(req, resp);
+				HttpLoggingUtils.addLogging(req.host, req, resp, null, 400, 0);
 				errorRequests++;
-				return;
+				return false;
 			} else if (ssObj == SimpleSerializable.UNKNOWN) {
-				HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				//HttpWorkerUtils.send400Response(req, resp);
+				SimpleLoggingUtils.addLogging(req.host, req, resp, (String)properties.get("class"), 400, 0);
 				errorRequests++;
-				return;
+				return false;
 			}
 			
 			try {
 				ssObj.deserialize(properties);
 			} catch (Throwable e) {
 				e.printStackTrace();
-				HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+				//HttpWorkerUtils.send400Response(req, resp);
+				SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
 				errorRequests++;
-				return;
+				return false;
 			}
 		}
 		
@@ -1205,7 +1241,7 @@ public class SimpleHttpWorker extends HttpWorker {
 			}
 			if (runnable instanceof CompoundPipeSession) {
 				CompoundPipeSession session = (CompoundPipeSession) runnable;
-				SimplePipeRunnable pipe = SimplePipeHelper.getPipe(session.pipeKey);
+				SimplePipeRunnable pipe = SimplePipeHelper.getPipe(session.pipeKey, true);
 				if (pipe instanceof CompoundPipeRunnable) {
 					CompoundPipeRunnable p = (CompoundPipeRunnable) pipe;
 					p.weave(session);
@@ -1282,7 +1318,7 @@ public class SimpleHttpWorker extends HttpWorker {
 								}
 							}
 						}
-						return;
+						return true;
 					} catch (Throwable e) {
 						e.printStackTrace();
 						serverError = true;
@@ -1300,16 +1336,18 @@ public class SimpleHttpWorker extends HttpWorker {
 			if (serverError) {
 				runnable.ajaxFail();
 				HttpWorkerUtils.send500Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, 500, 0);
+				SimpleLoggingUtils.addLogging(req.host, req, resp, runnable.getClass().getName(), 500, 0);
 				req.monitor = null;
-				return;
+				return true;
 			}
 			sendServiceResponse(req, resp, runnable, clonedRunnable, restful);
 			req.monitor = null;
+			return true;
 		} else {
-			HttpWorkerUtils.send400Response(req, resp);
-			HttpLoggingUtils.addLogging(req.host, req, 400, 0);
+			//HttpWorkerUtils.send400Response(req, resp);
+			SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
 			//errorRequests++;
+			return false;
 		}
 	}
 
@@ -1322,7 +1360,7 @@ public class SimpleHttpWorker extends HttpWorker {
 		if (req.requestCount < 1 && serverName != null && serverName.length() > 0) {
 			responseBuilder.append("Server: ").append(serverName).append("\r\n");
 		}
-		boolean closeSocket = HttpWorkerUtils.checkKeepAliveHeader(req, responseBuilder);
+		boolean closeSocket = HttpWorkerUtils.checkKeepAliveHeader(req, responseBuilder, resp.worker.getServer().isSSLEnabled());
 		
 		if (req.requestID != null) {
 			responseBuilder.append("Content-Type: text/javascript; charset=UTF-8\r\n");
@@ -1381,12 +1419,18 @@ public class SimpleHttpWorker extends HttpWorker {
 		}
 		if (content == null || content.length() == 0) {
 			server.send(resp.socket, "0\r\n\r\n".getBytes());
+			if (SimpleConfig.rpcLogging) {
+				SimpleLoggingUtils.addLogging(req.host, req, resp, runnable.getClass().getName(), 200, 0);
+			}
 			return;
 		}
 		String hexStr = Integer.toHexString(content.length());
 		String output = hexStr + "\r\n" + content + "\r\n0\r\n\r\n";
 		server.send(resp.socket, output.getBytes(restful ? HttpWorkerUtils.UTF_8 : HttpWorkerUtils.ISO_8859_1));
 		req.lastSent = System.currentTimeMillis();
+		if (SimpleConfig.rpcLogging) {
+			SimpleLoggingUtils.addLogging(req.host, req, resp, runnable.getClass().getName(), 200, content.length());
+		}
 	}
 
 	void sendServiceResponse(final SimpleHttpRequest req, final HttpResponse resp,
@@ -1416,7 +1460,7 @@ public class SimpleHttpWorker extends HttpWorker {
 		if (req.requestCount < 1 && serverName != null && serverName.length() > 0) {
 			responseBuilder.append("Server: ").append(serverName).append("\r\n");
 		}
-		boolean closeSocket = HttpWorkerUtils.checkKeepAliveHeader(req, responseBuilder);
+		boolean closeSocket = HttpWorkerUtils.checkKeepAliveHeader(req, responseBuilder, resp.worker.getServer().isSSLEnabled());
 		
 		byte[] outBytes = null;
 		if (req.requestID != null) {
@@ -1483,6 +1527,9 @@ public class SimpleHttpWorker extends HttpWorker {
 		server.send(resp.socket, outBytes);
 		if (closeSocket) {
 			closeSockets.put(resp.socket, req);
+		}
+		if (SimpleConfig.rpcLogging) {
+			SimpleLoggingUtils.addLogging(req.host, req, resp, runnable.getClass().getName(), 200, outBytes.length);
 		}
 	}
 

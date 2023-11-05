@@ -40,7 +40,7 @@ class SimplePipeMonitor implements Runnable {
 	@Override
 	public void run() {
 		while (server.running) {
-			long interval = PipeConfig.pipeCheckingInterval;
+			long interval = SimpleConfig.pipeCheckingInterval;
 			if (interval <= 0) {
 				interval = 500;
 			}
@@ -60,7 +60,7 @@ class SimplePipeMonitor implements Runnable {
 				char type = req.type;
 				
 				if (req.pipe == null) {
-					req.pipe = SimplePipeHelper.getPipe(key);
+					req.pipe = SimplePipeHelper.getPipe(key, true);
 				}
 				SimplePipeRunnable pipe = req.pipe;
 				long waitClosingInterval = 5000;
@@ -87,15 +87,15 @@ class SimplePipeMonitor implements Runnable {
 					req.buffer.append(pipe.pipeKey + SimplePipeRequest.PIPE_STATUS_OK);
 				}
 
-				int maxItems = SimplePipeRequest.PIPE_TYPE_SCRIPT == req.type ? 5 * PipeConfig.maxItemsPerQuery : PipeConfig.maxItemsPerQuery;
+				int maxItems = SimplePipeRequest.PIPE_TYPE_SCRIPT == req.type ? 5 * SimpleConfig.maxItemsPerQuery : SimpleConfig.maxItemsPerQuery;
 				if (pipe != null && pipe.getPipeData()/*SimplePipeHelper.getPipeDataList(key)*/ != null // may be broken down already!!
-						&& (PipeConfig.maxItemsPerQuery <= 0 || items < maxItems
+						&& (SimpleConfig.maxItemsPerQuery <= 0 || items < maxItems
 								|| SimplePipeRequest.PIPE_TYPE_CONTINUUM == type)
 						&& (SimplePipeRequest.PIPE_TYPE_CONTINUUM == type
 						|| (SimplePipeRequest.PIPE_TYPE_SCRIPT == type
-								&& now - beforeLoop < PipeConfig.pipeBreakout)
+								&& now - beforeLoop < SimpleConfig.pipeBreakout)
 						|| (priority < ISimplePipePriority.IMPORTANT
-								&& now - beforeLoop < PipeConfig.queryTimeout))) {
+								&& now - beforeLoop < SimpleConfig.queryTimeout))) {
 					// still needs waiting
 					if (req.buffer.length() > 0 && (SimplePipeRequest.PIPE_TYPE_CONTINUUM == type
 							|| SimplePipeRequest.PIPE_TYPE_SCRIPT == type)) {

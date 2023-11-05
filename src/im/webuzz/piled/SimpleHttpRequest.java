@@ -190,7 +190,7 @@ public class SimpleHttpRequest extends HttpRequest {
 			// jzz without jzn is considered as XHR requests!
 			if (jzzRequest == null || jzzRequest.trim().length() == 0) {
 				//response = generateXSSErrorResponse();
-				requestData = request.toString();
+				requestQuery = request.toString();
 				return -1; // error
 			}
 			
@@ -205,7 +205,7 @@ public class SimpleHttpRequest extends HttpRequest {
 				
 				// make sure that servlet support cross site script request
 				// always support cross site script requests
-				if (!PipeConfig.supportXSS) {
+				if (!SimpleConfig.supportXSS) {
 					response = new HttpQuickResponse("text/javascript", "net.sf.j2s.ajax.SimpleRPCRequest" +
 							".xssNotify(\"" + requestID + "\", \"unsupported\");");
 					return -1; // error
@@ -234,7 +234,7 @@ public class SimpleHttpRequest extends HttpRequest {
 				}
 				if (partsCount != 1) {
 					// check whether servlet can deal the requests
-					if (partsCount > PipeConfig.maxXSSParts) {
+					if (partsCount > SimpleConfig.maxXSSParts) {
 						response = new HttpQuickResponse("text/javascript", "net.sf.j2s.ajax.SimpleRPCRequest" +
 								".xssNotify(\"" + requestID + "\", \"exceedrequestlimit\");");
 						return -1; // error
@@ -263,7 +263,7 @@ public class SimpleHttpRequest extends HttpRequest {
 					long now = System.currentTimeMillis();
 					for (Iterator<SimpleHttpRequest> itr = allSessions.values().iterator(); itr.hasNext();) {
 						SimpleHttpRequest r = (SimpleHttpRequest) itr.next();
-						if (now - r.jzt > PipeConfig.maxXSSLatency) {
+						if (now - r.jzt > SimpleConfig.maxXSSLatency) {
 							itr.remove();
 						}
 					}
@@ -407,14 +407,14 @@ public class SimpleHttpRequest extends HttpRequest {
 				return new HttpQuickResponse(100);
 			}
 			if (pending.length > fullLength) {
-				requestData = new byte[fullLength];
-				System.arraycopy(pending, 0, requestData, 0, fullLength);
+				requestBody = new byte[fullLength];
+				System.arraycopy(pending, 0, requestBody, 0, fullLength);
 				dataLength = pending.length - fullLength;
 				byte[] newPending = new byte[dataLength];
 				System.arraycopy(pending, 0, newPending, 0, dataLength);
 				pending = newPending;
 			} else {
-				requestData = pending;
+				requestBody = pending;
 				dataLength = 0;
 				pending = null;
 			}
@@ -428,14 +428,14 @@ public class SimpleHttpRequest extends HttpRequest {
 				return new HttpQuickResponse(100);
 			}
 			if (pending.length > next) {
-				requestData = new byte[next];
-				System.arraycopy(pending, 0, requestData, 0, next);
+				requestBody = new byte[next];
+				System.arraycopy(pending, 0, requestBody, 0, next);
 				dataLength = pending.length - next;
 				byte[] newPending = new byte[dataLength];
 				System.arraycopy(pending, 0, newPending, 0, dataLength);
 				pending = newPending;
 			} else {
-				requestData = pending;
+				requestBody = pending;
 				dataLength = 0;
 				pending = null;
 			}

@@ -194,7 +194,6 @@ class SimplePipeUtils {
 		String hexStr = Integer.toHexString(content.length());
 		String output = hexStr + "\r\n" + content + "\r\n";
 		server.send(response.socket, output.getBytes(HttpWorkerUtils.ISO_8859_1));
-		return;
 	}
 
 }
