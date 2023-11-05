@@ -14,13 +14,10 @@ import net.sf.j2s.ajax.SimplePipeHelper;
 /**
  * Configuration for Simple RPC and Simple Pipe.
  * 
- * TODO: Containing both configuration for Simple RPC and Simple Pipe,
- * SimpleConfig is a better name?
- *  
  * @author zhourenjian
  * @see im.webuzz.config.Config
  */
-public class PipeConfig {
+public class SimpleConfig {
 
 	/**
 	 * Support cross site scripting(XSS) or not. If you want to support
@@ -99,6 +96,15 @@ public class PipeConfig {
 	 */
 	public static long pipeCheckingInterval = 500;
 
+	/**
+	 * Support logging for SimpleRPC or not.
+	 */
+	public static boolean rpcLogging = true;
+	/**
+	 * Support logging for SimplePipe or not.
+	 */
+	public static boolean pipeLogging = false;
+	
 	public static void update(Properties prop) {
 		String p = prop.getProperty("maxItemsPerQuery");
 		if (p != null && p.length() > 0) {
