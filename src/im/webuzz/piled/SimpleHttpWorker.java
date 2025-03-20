@@ -308,64 +308,29 @@ public class SimpleHttpWorker extends HttpWorker {
 		}
 	}
 
-	@SuppressWarnings("deprecation")
-	private byte[] getRequestBytes(final HttpRequest req) {
-		byte[] bytes = null;
-		if (req.requestBody instanceof byte[]) {
-			bytes = (byte[])req.requestBody;
-		} else if (req.requestQuery != null) { // if (req.requestData instanceof String) {
-			String ss = req.requestQuery;
-			if (!"POST".equals(req.method)) {
-				try {
-					ss = URLDecoder.decode(ss);
-				} catch (Exception e) {
-					e.printStackTrace();
-					System.out.println("Invalid post data: " + ss);
-				}
-			}
-			bytes = ss.getBytes(HttpWorkerUtils.ISO_8859_1);
-		}
-		return bytes;
-	}
-
-	@SuppressWarnings("deprecation")
-	private String getRequestString(final HttpRequest req) {
-		String ss = null;
-		if (req.requestBody instanceof byte[]) {
-			ss = new String((byte[])req.requestBody, HttpWorkerUtils.ISO_8859_1);
-		} else if (req.requestQuery != null) { // if (req.requestData instanceof String) {
-			ss = req.requestQuery;
-		}
-		if (!"POST".equals(req.method)) {
-			try {
-				ss = URLDecoder.decode(ss);
-			} catch (Exception e) {
-				e.printStackTrace();
-				System.out.println("Invalid post data: " + ss);
-			}
-		}
-		return ss;
-	}
-
 	protected void respondRequestWithData(HttpRequest req, HttpResponse rsp) {
 		boolean processed = false;
-		if (SimpleConfig.simpleRPCSupported && req.url.endsWith("/r")) { // Optimize for Simple RPC
+		boolean rpcEnabled = SimpleConfig.simpleRPCSupported;
+		boolean pipeEnabled = SimpleConfig.simplePipeSupported;
+		if (rpcEnabled && req.requestBody != null && (req.url.endsWith("/r") || req.url.endsWith("/c")
+				|| req.url.endsWith("/simplerpc") || req.url.endsWith("/piperpc"))) {
 			req.cookies = null;
-			processed = service((SimpleHttpRequest) req, rsp, getRequestBytes(req), false);
-		} else if (SimpleConfig.simplePipeSupported && req.url.endsWith("/p")) { // Optimize for Simple Pipe
+			processed = serviceOnBody((SimpleHttpRequest) req, rsp);
+		} else if (pipeEnabled && req.requestQuery != null
+				&& (req.url.endsWith("/p") || req.url.endsWith("/simplepipe"))) {
+			//*
 			req.cookies = null;
-			processed = pipe((SimpleHttpRequest) req, rsp, getRequestString(req));
-		} else if (SimpleConfig.simpleRPCSupported && (req.url.endsWith("piperpc")
-				|| req.url.endsWith("/c") || req.url.endsWith("simplerpc"))) {
-			req.cookies = null;
-			processed = service((SimpleHttpRequest) req, rsp, getRequestBytes(req), false);
-		} else if (SimpleConfig.simplePipeSupported && req.url.endsWith("simplepipe")) {
-			req.cookies = null;
-			processed = pipe((SimpleHttpRequest) req, rsp, getRequestString(req));
-		} else if (SimpleConfig.simpleRPCSupported
+			// request query should be in plain text, no decoding is requried
+			processed = pipeOnQuery((SimpleHttpRequest) req, rsp);
+		} else if (rpcEnabled
 				&& (req.url.endsWith("/j") || req.url.endsWith("simplejson"))) {
-			req.cookies = null;
-			processed = service((SimpleHttpRequest) req, rsp, getRequestBytes(req), true);
+			if (req.requestBody != null) {
+				req.cookies = null;
+				processed = serviceOnBody((SimpleHttpRequest) req, rsp);
+			} else if (req.requestQuery != null) { // GET /j?field1=xxx&field2=... 
+				req.cookies = null;
+				processed = serviceOnQuery((SimpleHttpRequest) req, rsp);
+			}
 		}
 		if (!processed) { // normal requests with query
 			piletResponse(req, rsp);
@@ -373,7 +338,8 @@ public class SimpleHttpWorker extends HttpWorker {
 		chainingRequest(req, rsp);
 	}
 
-	private boolean pipe(final SimpleHttpRequest req, final HttpResponse resp, String ss) {
+	private boolean pipeOnQuery(final SimpleHttpRequest req, final HttpResponse resp) {
+		String ss = req.requestQuery;
 		int length = ss.length();
 		if (length < 2) {
 			//HttpWorkerUtils.send400Response(req, resp);
@@ -1081,130 +1047,142 @@ public class SimpleHttpWorker extends HttpWorker {
 		}
 		return null;
 	}
-	@SuppressWarnings("unchecked")
-	private boolean service(final SimpleHttpRequest req, final HttpResponse resp,
-			byte[] ss, final boolean restful) {
-		if (ss != null && ss.length > 7 && ss[2] == 'Z' && ss[1] == 'L' && ss[0] == 'W') {
+	
+	private boolean serviceOnBody(final SimpleHttpRequest req, final HttpResponse resp) {
+		byte[] requestBody = null;
+		if (req.requestBody instanceof byte[]) {
+			requestBody = (byte[]) req.requestBody;
+		} else if (req.requestBody instanceof ByteArrayOutputStream) {
+			requestBody = ((ByteArrayOutputStream) req.requestBody).toByteArray();
+		}
+		if (requestBody != null && requestBody.length > 7
+				&& requestBody[2] == 'Z' && requestBody[1] == 'L' && requestBody[0] == 'W') {
 			// unzip ss into WLL... bytes
-			byte[] zz = gzipDecompress(ss, 7, ss.length - 7); // WLZ#### (#:0-9A-Za-z, based 62, max 14776336 ~ 14M)
+			byte[] zz = gzipDecompress(requestBody, 7, requestBody.length - 7); // WLZ#### (#:0-9A-Za-z, based 62, max 14776336 ~ 14M)
 			if (zz != null) {
-				ss = zz;
+				requestBody = zz;
 			}
 		}
-		SimpleSerializable ssObj = null;
-		if (!restful) {
-			ssObj = SimpleSerializable.parseInstance(ss);
-			if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
-				System.out.println("[ERROR query!]" + new String(ss));
-				System.out.println("[ERROR UA]" + req.userAgent);
-				System.out.println("[ERROR URL]" + req.url);
-				System.out.println("[ERROR IP]" + req.remoteIP);
-				System.out.println("[ERROR Referrer]" + req.referer);
-				System.out.println("[ERROR Host]" + req.host);
-				//HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, resp, null, 400, 0);
-				errorRequests++;
-				return false;
-			} else if (ssObj == SimpleSerializable.UNKNOWN) {
-				//HttpWorkerUtils.send400Response(req, resp);
-				SimpleLoggingUtils.addLogging(req.host, req, resp, parseInstanceClassName(ss, 0, null), 400, 0);
-				errorRequests++;
-				return false;
-			}
-			try {
-				ssObj.deserializeBytes(ss);
-			} catch (Throwable e) {
-				e.printStackTrace();
-				//HttpWorkerUtils.send400Response(req, resp);
-				SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
-				errorRequests++;
-				return false;
-			}
-		} else {
-			Map<String, Object> properties = new HashMap<String, Object>();
-			String requestData = new String(ss, HttpWorkerUtils.UTF_8);
-			String[] datas = requestData.split("&");
-			for (String prop : datas) {
-				String[] propArray = prop.split("=");
-				if (propArray.length != 2) continue;
-				String value = null;
-				try {
-					value = URLDecoder.decode(propArray[1], "UTF-8");
-				} catch (UnsupportedEncodingException e) {
-					e.printStackTrace();
-				}
-				if (value == null) {
-					continue;
-				}
-				String propName = propArray[0];
-				if (propName.endsWith("]")) {
-					int idx = propName.indexOf("[");
-					if (idx == -1) {
-						continue;
-					}
-					String indexStr = propName.substring(idx + 1, propName.length() - 1);
-					int index = -1;
-					if (indexStr.length() != 0) {
-						try {
-							index = Integer.parseInt(indexStr);
-						} catch (NumberFormatException e) {
-							index = 0 + indexStr.charAt(0);
-						}
-					}
-					List<String> list = null;
-					String name = propName.substring(0, idx);
-					Object propValue = properties.get(name);
-					if (propValue != null) {
-						if (!(propValue instanceof List)) {
-							continue;
-						}
-						list = (List<String>) propValue;
-					} else {
-						list = new ArrayList<String>();
-						properties.put(name, list);
-					}
-					if (index >= 0) {
-						for (int k = list.size(); k < index; k++) {
-							list.add(k, "");
-						}
-						list.add(index, value);
-					} else {
-						list.add(value);
-					}
-				} else {
-					properties.put(propName, value);
-				}
-			}
-			ssObj = SimpleSerializable.parseInstance(properties);
-			if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
-				System.out.println("[ERROR query!]" + new String(ss));
-				System.out.println("[ERROR UA]" + req.userAgent);
-				System.out.println("[ERROR URL]" + req.url);
-				System.out.println("[ERROR IP]" + req.remoteIP);
-				System.out.println("[ERROR Referrer]" + req.referer);
-				System.out.println("[ERROR Host]" + req.host);
-				//HttpWorkerUtils.send400Response(req, resp);
-				HttpLoggingUtils.addLogging(req.host, req, resp, null, 400, 0);
-				errorRequests++;
-				return false;
-			} else if (ssObj == SimpleSerializable.UNKNOWN) {
-				//HttpWorkerUtils.send400Response(req, resp);
-				SimpleLoggingUtils.addLogging(req.host, req, resp, (String)properties.get("class"), 400, 0);
-				errorRequests++;
-				return false;
-			}
-			
-			try {
-				ssObj.deserialize(properties);
-			} catch (Throwable e) {
-				e.printStackTrace();
-				//HttpWorkerUtils.send400Response(req, resp);
-				SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
-				errorRequests++;
-				return false;
-			}
+		SimpleSerializable ssObj = SimpleSerializable.parseInstance(requestBody);
+		if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
+			System.out.println("[ERROR query!]" + new String(requestBody));
+			System.out.println("[ERROR UA]" + req.userAgent);
+			System.out.println("[ERROR URL]" + req.url);
+			System.out.println("[ERROR IP]" + req.remoteIP);
+			System.out.println("[ERROR Referrer]" + req.referer);
+			System.out.println("[ERROR Host]" + req.host);
+			//HttpWorkerUtils.send400Response(req, resp);
+			HttpLoggingUtils.addLogging(req.host, req, resp, null, 400, 0);
+			errorRequests++;
+			return false;
+		} else if (ssObj == SimpleSerializable.UNKNOWN) {
+			//HttpWorkerUtils.send400Response(req, resp);
+			SimpleLoggingUtils.addLogging(req.host, req, resp, parseInstanceClassName(requestBody, 0, null), 400, 0);
+			errorRequests++;
+			return false;
+		}
+		try {
+			ssObj.deserializeBytes(requestBody);
+		} catch (Throwable e) {
+			e.printStackTrace();
+			//HttpWorkerUtils.send400Response(req, resp);
+			SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
+			errorRequests++;
+			return false;
 		}
 		
+		return runSimpleRPC(req, resp, ssObj, false);
+	}
+	
+	@SuppressWarnings("unchecked")
+	private boolean serviceOnQuery(final SimpleHttpRequest req, final HttpResponse resp) {
+		Map<String, Object> properties = new HashMap<String, Object>();
+		String[] datas = req.requestQuery.split("&");
+		for (String prop : datas) {
+			String[] propArray = prop.split("=");
+			if (propArray.length != 2) continue;
+			String value = null;
+			try {
+				value = URLDecoder.decode(propArray[1], "UTF-8");
+			} catch (UnsupportedEncodingException e) {
+				e.printStackTrace();
+			}
+			if (value == null) {
+				continue;
+			}
+			String propName = propArray[0];
+			if (propName.endsWith("]")) {
+				int idx = propName.indexOf("[");
+				if (idx == -1) {
+					continue;
+				}
+				String indexStr = propName.substring(idx + 1, propName.length() - 1);
+				int index = -1;
+				if (indexStr.length() != 0) {
+					try {
+						index = Integer.parseInt(indexStr);
+					} catch (NumberFormatException e) {
+						index = 0 + indexStr.charAt(0);
+					}
+				}
+				List<String> list = null;
+				String name = propName.substring(0, idx);
+				Object propValue = properties.get(name);
+				if (propValue != null) {
+					if (!(propValue instanceof List)) {
+						continue;
+					}
+					list = (List<String>) propValue;
+				} else {
+					list = new ArrayList<String>();
+					properties.put(name, list);
+				}
+				if (index >= 0) {
+					for (int k = list.size(); k < index; k++) {
+						list.add(k, "");
+					}
+					list.add(index, value);
+				} else {
+					list.add(value);
+				}
+			} else {
+				properties.put(propName, value);
+			}
+		}
+		SimpleSerializable ssObj = SimpleSerializable.parseInstance(properties);
+		if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
+			System.out.println("[ERROR query!]" + req.requestQuery);
+			System.out.println("[ERROR UA]" + req.userAgent);
+			System.out.println("[ERROR URL]" + req.url);
+			System.out.println("[ERROR IP]" + req.remoteIP);
+			System.out.println("[ERROR Referrer]" + req.referer);
+			System.out.println("[ERROR Host]" + req.host);
+			//HttpWorkerUtils.send400Response(req, resp);
+			HttpLoggingUtils.addLogging(req.host, req, resp, null, 400, 0);
+			errorRequests++;
+			return false;
+		} else if (ssObj == SimpleSerializable.UNKNOWN) {
+			//HttpWorkerUtils.send400Response(req, resp);
+			SimpleLoggingUtils.addLogging(req.host, req, resp, (String)properties.get("class"), 400, 0);
+			errorRequests++;
+			return false;
+		}
+		
+		try {
+			ssObj.deserialize(properties);
+		} catch (Throwable e) {
+			e.printStackTrace();
+			//HttpWorkerUtils.send400Response(req, resp);
+			SimpleLoggingUtils.addLogging(req.host, req, resp, ssObj.getClass().getName(), 400, 0);
+			errorRequests++;
+			return false;
+		}
+		
+		return runSimpleRPC(req, resp, ssObj, true);
+	}
+
+	protected boolean runSimpleRPC(final SimpleHttpRequest req, final HttpResponse resp, SimpleSerializable ssObj,
+			final boolean restful) {
 		if (ssObj instanceof SimpleRPCRunnable) {
 			final SimpleRPCRunnable runnable = (SimpleRPCRunnable) ssObj;
 			if (runnable instanceof ISimpleRequestInfoBinding) {
