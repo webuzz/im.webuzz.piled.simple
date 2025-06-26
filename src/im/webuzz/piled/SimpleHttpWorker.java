@@ -329,7 +329,7 @@ public class SimpleHttpWorker extends HttpWorker {
 				processed = serviceOnBody((SimpleHttpRequest) req, rsp);
 			} else if (req.requestQuery != null) { // GET /j?field1=xxx&field2=... 
 				req.cookies = null;
-				processed = serviceOnQuery((SimpleHttpRequest) req, rsp);
+				processed = serviceOnQuery(req.requestQuery, (SimpleHttpRequest) req, rsp);
 			}
 		}
 		if (!processed) { // normal requests with query
@@ -1056,11 +1056,20 @@ public class SimpleHttpWorker extends HttpWorker {
 			requestBody = ((ByteArrayOutputStream) req.requestBody).toByteArray();
 		}
 		if (requestBody != null && requestBody.length > 7
-				&& requestBody[2] == 'Z' && requestBody[1] == 'L' && requestBody[0] == 'W') {
-			// unzip ss into WLL... bytes
-			byte[] zz = gzipDecompress(requestBody, 7, requestBody.length - 7); // WLZ#### (#:0-9A-Za-z, based 62, max 14776336 ~ 14M)
-			if (zz != null) {
-				requestBody = zz;
+				&& requestBody[1] == 'L' && requestBody[0] == 'W') {
+			if (requestBody[2] == 'Z') {
+				// unzip ss into WLL... bytes
+				byte[] zz = gzipDecompress(requestBody, 7, requestBody.length - 7); // WLZ#### (#:0-9A-Za-z, based 62, max 14776336 ~ 14M)
+				if (zz != null) {
+					requestBody = zz;
+				}
+			} // else WLL
+		} else {
+			// back to query mode
+			try {
+				return serviceOnQuery(new String(requestBody, "UTF-8"), req, resp);
+			} catch (UnsupportedEncodingException e) {
+				return serviceOnQuery(new String(requestBody), req, resp);
 			}
 		}
 		SimpleSerializable ssObj = SimpleSerializable.parseInstance(requestBody);
@@ -1095,9 +1104,9 @@ public class SimpleHttpWorker extends HttpWorker {
 	}
 	
 	@SuppressWarnings("unchecked")
-	private boolean serviceOnQuery(final SimpleHttpRequest req, final HttpResponse resp) {
+	private boolean serviceOnQuery(String requestQuery, final SimpleHttpRequest req, final HttpResponse resp) {
 		Map<String, Object> properties = new HashMap<String, Object>();
-		String[] datas = req.requestQuery.split("&");
+		String[] datas = requestQuery.split("&");
 		for (String prop : datas) {
 			String[] propArray = prop.split("=");
 			if (propArray.length != 2) continue;
@@ -1110,7 +1119,15 @@ public class SimpleHttpWorker extends HttpWorker {
 			if (value == null) {
 				continue;
 			}
-			String propName = propArray[0];
+			String propName = null;
+			try {
+				propName = URLDecoder.decode(propArray[0], "UTF-8");
+			} catch (UnsupportedEncodingException e) {
+				e.printStackTrace();
+			}
+			if (propName == null) {
+				continue;
+			}
 			if (propName.endsWith("]")) {
 				int idx = propName.indexOf("[");
 				if (idx == -1) {
@@ -1146,12 +1163,24 @@ public class SimpleHttpWorker extends HttpWorker {
 					list.add(value);
 				}
 			} else {
-				properties.put(propName, value);
+				Object v = properties.get(propName);
+				if (v != null) {
+					List<String> list = null;
+					if (v instanceof List) {
+						list = (List<String>) v;
+					} else {
+						list = new ArrayList<String>();
+						properties.put(propName, list);
+					}
+					list.add(value);
+				}else {
+					properties.put(propName, value);
+				}
 			}
 		}
 		SimpleSerializable ssObj = SimpleSerializable.parseInstance(properties);
 		if (ssObj == null || ssObj == SimpleSerializable.ERROR) {
-			System.out.println("[ERROR query!]" + req.requestQuery);
+			System.out.println("[ERROR query!]" + requestQuery);
 			System.out.println("[ERROR UA]" + req.userAgent);
 			System.out.println("[ERROR URL]" + req.url);
 			System.out.println("[ERROR IP]" + req.remoteIP);
