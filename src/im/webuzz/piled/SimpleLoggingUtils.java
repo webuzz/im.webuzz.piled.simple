@@ -19,7 +19,7 @@ public class SimpleLoggingUtils {
 		builder.append(" ");
 		builder.append(req.url);
 		if (clazzName != null && clazzName.length() > 0) {
-			builder.append("?");
+			builder.append("?class=");
 			builder.append(clazzName);
 		} else if (req.requestQuery != null && req.requestQuery.length() > 0) {
 			builder.append("?");
