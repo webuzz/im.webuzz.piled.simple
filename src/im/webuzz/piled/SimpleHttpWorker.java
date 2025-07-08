@@ -1067,9 +1067,17 @@ public class SimpleHttpWorker extends HttpWorker {
 		} else {
 			// back to query mode
 			try {
-				return serviceOnQuery(new String(requestBody, "UTF-8"), req, resp);
+				String bodyQuery = new String(requestBody, "UTF-8");
+				if (req.requestQuery != null && req.requestQuery.length() > 0) {
+					return serviceOnQuery(req.requestQuery + "&" + bodyQuery, req, resp);
+				}
+				return serviceOnQuery(bodyQuery, req, resp);
 			} catch (UnsupportedEncodingException e) {
-				return serviceOnQuery(new String(requestBody), req, resp);
+				String bodyQuery = new String(requestBody);
+				if (req.requestQuery != null && req.requestQuery.length() > 0) {
+					return serviceOnQuery(req.requestQuery + "&" + bodyQuery, req, resp);
+				}
+				return serviceOnQuery(bodyQuery, req, resp);
 			}
 		}
 		SimpleSerializable ssObj = SimpleSerializable.parseInstance(requestBody);
