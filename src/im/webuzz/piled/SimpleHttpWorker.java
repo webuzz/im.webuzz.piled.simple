@@ -316,6 +316,10 @@ public class SimpleHttpWorker extends HttpWorker {
 				|| req.url.endsWith("/simplerpc") || req.url.endsWith("/piperpc"))) {
 			req.cookies = null;
 			processed = serviceOnBody((SimpleHttpRequest) req, rsp);
+		} else if (rpcEnabled && req.requestQuery != null && (req.url.endsWith("/r") || req.url.endsWith("/c")
+				|| req.url.endsWith("/simplerpc") || req.url.endsWith("/piperpc"))) {
+			req.cookies = null;
+			processed = serviceOnBody((SimpleHttpRequest) req, rsp);
 		} else if (pipeEnabled && req.requestQuery != null
 				&& (req.url.endsWith("/p") || req.url.endsWith("/simplepipe"))) {
 			//*
@@ -1054,6 +1058,8 @@ public class SimpleHttpWorker extends HttpWorker {
 			requestBody = (byte[]) req.requestBody;
 		} else if (req.requestBody instanceof ByteArrayOutputStream) {
 			requestBody = ((ByteArrayOutputStream) req.requestBody).toByteArray();
+		} else if (req.requestQuery != null && req.requestQuery.startsWith("WL")) {
+			requestBody = req.requestQuery.getBytes();
 		}
 		if (requestBody != null && requestBody.length > 7
 				&& requestBody[1] == 'L' && requestBody[0] == 'W') {
@@ -1066,19 +1072,23 @@ public class SimpleHttpWorker extends HttpWorker {
 			} // else WLL
 		} else {
 			// back to query mode
-			try {
-				String bodyQuery = new String(requestBody, "UTF-8");
+			if (requestBody == null) {
 				if (req.requestQuery != null && req.requestQuery.length() > 0) {
-					return serviceOnQuery(req.requestQuery + "&" + bodyQuery, req, resp);
+					return serviceOnQuery(req.requestQuery, req, resp);
+				} else {
+					return false;
 				}
-				return serviceOnQuery(bodyQuery, req, resp);
-			} catch (UnsupportedEncodingException e) {
-				String bodyQuery = new String(requestBody);
-				if (req.requestQuery != null && req.requestQuery.length() > 0) {
-					return serviceOnQuery(req.requestQuery + "&" + bodyQuery, req, resp);
-				}
-				return serviceOnQuery(bodyQuery, req, resp);
 			}
+			String bodyQuery = null;
+			try {
+				bodyQuery = new String(requestBody, "UTF-8");
+			} catch (UnsupportedEncodingException e) {
+				bodyQuery = new String(requestBody);
+			}
+			if (req.requestQuery != null && req.requestQuery.length() > 0) {
+				return serviceOnQuery(req.requestQuery + "&" + bodyQuery, req, resp);
+			}
+			return serviceOnQuery(bodyQuery, req, resp);
 		}
 		SimpleSerializable ssObj = SimpleSerializable.parseInstance(requestBody);
 		if (ssObj == null || ssObj == SimpleSerializable.ERROR) {

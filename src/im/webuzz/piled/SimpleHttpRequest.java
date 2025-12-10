@@ -1,5 +1,6 @@
 package im.webuzz.piled;
 
+import java.net.URLDecoder;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -78,6 +79,23 @@ public class SimpleHttpRequest extends HttpRequest {
 
 	@Override
 	protected int checkParseRequest(StringBuilder request) {
+		int parsedResult = checkAndParseMultipleRequests(request);
+		if (parsedResult != -1 && request.length() > 2
+				&& request.charAt(0) == 'W' && request.charAt(1) == 'L'
+				&& request.indexOf("%") != -1) {
+			String jz = request.toString();
+			try {
+				String decodedQuery = URLDecoder.decode(jz, "UTF-8");
+				request.delete(0, request.length());
+				request.append(decodedQuery);
+			} catch (Exception e) {
+				return -1;
+			}
+		}
+		return parsedResult;
+	}
+	
+	protected int checkAndParseMultipleRequests(StringBuilder request) {
 		/*
 		 * may be start with "jz[n|p|c|z]=", normal request may start with 
 		 * raw "WLL100" or other tokens but charAt(3) should never be '='.
